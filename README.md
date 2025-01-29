@@ -18,7 +18,7 @@
 
 ## Установка 📦
 ```bash
-go get github.com/SNAcorp/pca9685
+go get github.com/SNAcorp/go-pca9685
 ```
 
 ## Быстрый старт 🚀
