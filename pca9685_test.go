@@ -1,9 +1,8 @@
-package tests
+package pca9685
 
 import (
 	"context"
 	"errors"
-	"github.com/snaart/go-pca9685/pca9685"
 	"image/color"
 	"math"
 	"sync"
@@ -55,9 +54,9 @@ func (m *MockI2CDevice) Close() error {
 
 func TestPCA9685_New(t *testing.T) {
 	mock := NewMockI2CDevice()
-	config := pca9685.DefaultConfig()
+	config := DefaultConfig()
 
-	pca, err := pca9685.New(mock, config)
+	pca, err := New(mock, config)
 	if err != nil {
 		t.Fatalf("Failed to create PCA9685: %v", err)
 	}
@@ -73,7 +72,7 @@ func TestPCA9685_New(t *testing.T) {
 
 func TestPCA9685_SetPWMFreq(t *testing.T) {
 	mock := NewMockI2CDevice()
-	pca, _ := pca9685.New(mock, pca9685.DefaultConfig())
+	pca, _ := New(mock, DefaultConfig())
 
 	tests := []struct {
 		name    string
@@ -102,7 +101,7 @@ func TestPCA9685_SetPWMFreq(t *testing.T) {
 
 func TestPCA9685_SetPWM(t *testing.T) {
 	mock := NewMockI2CDevice()
-	pca, _ := pca9685.New(mock, pca9685.DefaultConfig())
+	pca, _ := New(mock, DefaultConfig())
 	ctx := context.Background()
 
 	tests := []struct {
@@ -130,7 +129,7 @@ func TestPCA9685_SetPWM(t *testing.T) {
 
 func TestPCA9685_SetMultiPWM(t *testing.T) {
 	mock := NewMockI2CDevice()
-	pca, _ := pca9685.New(mock, pca9685.DefaultConfig())
+	pca, _ := New(mock, DefaultConfig())
 	ctx := context.Background()
 
 	settings := map[int]struct{ On, Off uint16 }{
@@ -156,10 +155,10 @@ func TestPCA9685_SetMultiPWM(t *testing.T) {
 
 func TestRGBLed(t *testing.T) {
 	mock := NewMockI2CDevice()
-	pca, _ := pca9685.New(mock, pca9685.DefaultConfig())
+	pca, _ := New(mock, DefaultConfig())
 	ctx := context.Background()
 
-	led, err := pca9685.NewRGBLed(pca, 0, 1, 2)
+	led, err := NewRGBLed(pca, 0, 1, 2)
 	if err != nil {
 		t.Fatalf("NewRGBLed() error = %v", err)
 	}
@@ -215,12 +214,12 @@ func TestRGBLed(t *testing.T) {
 
 func TestPump(t *testing.T) {
 	mock := NewMockI2CDevice()
-	pca, _ := pca9685.New(mock, pca9685.DefaultConfig())
+	pca, _ := New(mock, DefaultConfig())
 	ctx := context.Background()
 
 	// Тест создания насоса с опциями
 	t.Run("Creation", func(t *testing.T) {
-		pump, err := pca9685.NewPump(pca, 0, pca9685.WithSpeedLimits(1000, 3000))
+		pump, err := NewPump(pca, 0, WithSpeedLimits(1000, 3000))
 		if err != nil {
 			t.Fatalf("NewPump() error = %v", err)
 		}
@@ -231,7 +230,7 @@ func TestPump(t *testing.T) {
 
 	// Тест установки скорости
 	t.Run("SetSpeed", func(t *testing.T) {
-		pump, _ := pca9685.NewPump(pca, 0)
+		pump, _ := NewPump(pca, 0)
 		tests := []struct {
 			name    string
 			speed   float64
@@ -256,7 +255,7 @@ func TestPump(t *testing.T) {
 
 	// Тест получения текущей скорости
 	t.Run("GetCurrentSpeed", func(t *testing.T) {
-		pump, _ := pca9685.NewPump(pca, 0)
+		pump, _ := NewPump(pca, 0)
 		targetSpeed := float64(50)
 
 		if err := pump.SetSpeed(ctx, targetSpeed); err != nil {
@@ -278,7 +277,7 @@ func TestPump(t *testing.T) {
 
 	// Тест остановки насоса
 	t.Run("Stop", func(t *testing.T) {
-		pump, _ := pca9685.NewPump(pca, 0)
+		pump, _ := NewPump(pca, 0)
 
 		// Сначала установим какую-то скорость
 		if err := pump.SetSpeed(ctx, 50); err != nil {
@@ -299,7 +298,7 @@ func TestPump(t *testing.T) {
 
 func TestContextCancellation(t *testing.T) {
 	mock := NewMockI2CDevice()
-	pca, _ := pca9685.New(mock, pca9685.DefaultConfig())
+	pca, _ := New(mock, DefaultConfig())
 
 	// Создаем контекст с отменой
 	ctx, cancel := context.WithCancel(context.Background())
@@ -326,7 +325,7 @@ func TestContextCancellation(t *testing.T) {
 
 func TestConcurrency(t *testing.T) {
 	mock := NewMockI2CDevice()
-	pca, _ := pca9685.New(mock, pca9685.DefaultConfig())
+	pca, _ := New(mock, DefaultConfig())
 	ctx := context.Background()
 
 	// Тестируем одновременный доступ к устройству
