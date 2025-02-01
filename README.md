@@ -85,6 +85,8 @@ ctx := context.Background()
 err = pump.SetSpeed(ctx, 50)
 ```
 
+### Расширенные примеры/сценарии: [Примеры](./examples/examples.md).
+
 ## Архитектура
 
 ### Система адаптеров
@@ -181,6 +183,8 @@ pca, err := pca9685.New(adapter, pca9685.DefaultConfig())
 ```bash
 go test ./... -v
 ```
+
+### Расширенная документация: [Docs](./docs/API.md).
 
 ## Поддерживаемые платформы
 
