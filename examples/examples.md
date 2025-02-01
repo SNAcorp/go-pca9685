@@ -11,7 +11,7 @@ import (
     "context"
     "log"
     "time"
-    "github.com/SNAcorp/pca9685"
+    "github.com/snaart/pca9685"
 )
 
 func main() {
