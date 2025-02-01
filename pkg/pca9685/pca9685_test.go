@@ -33,7 +33,11 @@ func TestPCA9685_New(t *testing.T) {
 func TestPCA9685_SetPWMFreq(t *testing.T) {
 	adapter := NewTestI2C()
 	t.Log("Using TestI2C adapter for testing")
-	pca, _ := New(adapter, DefaultConfig())
+	pca, err := New(adapter, DefaultConfig())
+
+	if err != nil {
+		t.Fatalf("Failed to create PCA9685: %v", err)
+	}
 
 	tests := []struct {
 		name    string
@@ -63,7 +67,12 @@ func TestPCA9685_SetPWMFreq(t *testing.T) {
 func TestPCA9685_SetPWM(t *testing.T) {
 	adapter := NewTestI2C()
 	t.Log("Using TestI2C adapter for testing")
-	pca, _ := New(adapter, DefaultConfig())
+	pca, err := New(adapter, DefaultConfig())
+
+	if err != nil {
+		t.Fatalf("Failed to create PCA9685: %v", err)
+	}
+
 	ctx := context.Background()
 
 	tests := []struct {
@@ -92,7 +101,12 @@ func TestPCA9685_SetPWM(t *testing.T) {
 func TestPCA9685_SetMultiPWM(t *testing.T) {
 	adapter := NewTestI2C()
 	t.Log("Using TestI2C adapter for testing")
-	pca, _ := New(adapter, DefaultConfig())
+	pca, err := New(adapter, DefaultConfig())
+
+	if err != nil {
+		t.Fatalf("Failed to create PCA9685: %v", err)
+	}
+
 	ctx := context.Background()
 
 	settings := map[int]struct{ On, Off uint16 }{
@@ -118,7 +132,12 @@ func TestPCA9685_SetMultiPWM(t *testing.T) {
 func TestRGBLed(t *testing.T) {
 	adapter := NewTestI2C()
 	t.Log("Using TestI2C adapter for testing")
-	pca, _ := New(adapter, DefaultConfig())
+	pca, err := New(adapter, DefaultConfig())
+
+	if err != nil {
+		t.Fatalf("Failed to create PCA9685: %v", err)
+	}
+
 	ctx := context.Background()
 
 	led, err := NewRGBLed(pca, 0, 1, 2)
@@ -173,7 +192,12 @@ func TestRGBLed(t *testing.T) {
 func TestPump(t *testing.T) {
 	adapter := NewTestI2C()
 	t.Log("Using TestI2C adapter for testing")
-	pca, _ := New(adapter, DefaultConfig())
+	pca, err := New(adapter, DefaultConfig())
+
+	if err != nil {
+		t.Fatalf("Failed to create PCA9685: %v", err)
+	}
+
 	ctx := context.Background()
 
 	t.Run("Creation", func(t *testing.T) {
@@ -187,7 +211,12 @@ func TestPump(t *testing.T) {
 	})
 
 	t.Run("SetSpeed", func(t *testing.T) {
-		pump, _ := NewPump(pca, 0)
+		pump, err := NewPump(pca, 0)
+
+		if err != nil {
+			t.Fatalf("NewPump() error = %v", err)
+		}
+
 		tests := []struct {
 			name    string
 			speed   float64
@@ -211,7 +240,11 @@ func TestPump(t *testing.T) {
 	})
 
 	t.Run("GetCurrentSpeed", func(t *testing.T) {
-		pump, _ := NewPump(pca, 0)
+		pump, err := NewPump(pca, 0)
+
+		if err != nil {
+			t.Fatalf("NewPump() error = %v", err)
+		}
 		targetSpeed := 50.0
 
 		if err := pump.SetSpeed(ctx, targetSpeed); err != nil {
@@ -230,7 +263,11 @@ func TestPump(t *testing.T) {
 	})
 
 	t.Run("Stop", func(t *testing.T) {
-		pump, _ := NewPump(pca, 0)
+		pump, err := NewPump(pca, 0)
+
+		if err != nil {
+			t.Fatalf("NewPump() error = %v", err)
+		}
 
 		if err := pump.SetSpeed(ctx, 50); err != nil {
 			t.Fatalf("SetSpeed() error = %v", err)
@@ -249,7 +286,11 @@ func TestPump(t *testing.T) {
 func TestContextCancellation(t *testing.T) {
 	adapter := NewTestI2C()
 	t.Log("Using TestI2C adapter for testing")
-	pca, _ := New(adapter, DefaultConfig())
+	pca, err := New(adapter, DefaultConfig())
+
+	if err != nil {
+		t.Fatalf("Failed to create PCA9685: %v", err)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -273,7 +314,12 @@ func TestContextCancellation(t *testing.T) {
 func TestConcurrency(t *testing.T) {
 	adapter := NewTestI2C()
 	t.Log("Using TestI2C adapter for testing")
-	pca, _ := New(adapter, DefaultConfig())
+	pca, err := New(adapter, DefaultConfig())
+
+	if err != nil {
+		t.Fatalf("Failed to create PCA9685: %v", err)
+	}
+
 	ctx := context.Background()
 
 	const numGoroutines = 10
@@ -594,7 +640,7 @@ func TestMultipleChannelsConcurrent(t *testing.T) {
 	)
 
 	var wg sync.WaitGroup
-	errors_ := make(chan error, numChannels)
+	errorsList := make(chan error, numChannels)
 	ctx := context.Background()
 
 	// Запускаем горутину для каждого канала
@@ -612,19 +658,19 @@ func TestMultipleChannelsConcurrent(t *testing.T) {
 
 				// Устанавливаем значение
 				if err := pca.SetPWM(ctx, channel, 0, value); err != nil {
-					errors_ <- fmt.Errorf("channel %d set error: %v", channel, err)
+					errorsList <- fmt.Errorf("channel %d set error: %v", channel, err)
 					return
 				}
 
 				// Проверяем значение
 				_, _, off, err := pca.GetChannelState(channel)
 				if err != nil {
-					errors_ <- fmt.Errorf("channel %d get error: %v", channel, err)
+					errorsList <- fmt.Errorf("channel %d get error: %v", channel, err)
 					return
 				}
 
 				if off != value {
-					errors_ <- fmt.Errorf("channel %d value mismatch: got %d, want %d",
+					errorsList <- fmt.Errorf("channel %d value mismatch: got %d, want %d",
 						channel, off, value)
 					return
 				}
@@ -636,18 +682,18 @@ func TestMultipleChannelsConcurrent(t *testing.T) {
 			// Проверяем финальное состояние канала
 			enabled, _, finalValue, err := pca.GetChannelState(channel)
 			if err != nil {
-				errors_ <- fmt.Errorf("channel %d final state error: %v", channel, err)
+				errorsList <- fmt.Errorf("channel %d final state error: %v", channel, err)
 				return
 			}
 
 			if !enabled {
-				errors_ <- fmt.Errorf("channel %d unexpectedly disabled", channel)
+				errorsList <- fmt.Errorf("channel %d unexpectedly disabled", channel)
 				return
 			}
 
 			expectedFinal := uint16((channel * 256) + numIterationsPerChannel - 1)
 			if finalValue != expectedFinal {
-				errors_ <- fmt.Errorf("channel %d final value mismatch: got %d, want %d",
+				errorsList <- fmt.Errorf("channel %d final value mismatch: got %d, want %d",
 					channel, finalValue, expectedFinal)
 				return
 			}
@@ -656,11 +702,11 @@ func TestMultipleChannelsConcurrent(t *testing.T) {
 
 	// Ждем завершения всех горутин
 	wg.Wait()
-	close(errors_)
+	close(errorsList)
 
 	// Проверяем наличие ошибок
 	var errorList []error
-	for err := range errors_ {
+	for err := range errorsList {
 		errorList = append(errorList, err)
 	}
 
@@ -684,7 +730,7 @@ func TestConcurrentFrequencyChange(t *testing.T) {
 	defer cancel()
 
 	var wg sync.WaitGroup
-	errors_ := make(chan error, 3)
+	errorsList := make(chan error, 3)
 
 	// Горутина изменения частоты
 	wg.Add(1)
@@ -698,7 +744,7 @@ func TestConcurrentFrequencyChange(t *testing.T) {
 			default:
 				for _, freq := range frequencies {
 					if err := pca.SetPWMFreq(freq); err != nil {
-						errors_ <- fmt.Errorf("frequency error: %v", err)
+						errorsList <- fmt.Errorf("frequency error: %v", err)
 						return
 					}
 					time.Sleep(100 * time.Millisecond)
@@ -719,7 +765,7 @@ func TestConcurrentFrequencyChange(t *testing.T) {
 				for ch := 0; ch < 16; ch++ {
 					value := uint16(ch * 256)
 					if err := pca.SetPWM(ctx, ch, 0, value); err != nil {
-						errors_ <- fmt.Errorf("PWM error on channel %d: %v", ch, err)
+						errorsList <- fmt.Errorf("PWM error on channel %d: %v", ch, err)
 						return
 					}
 				}
@@ -739,7 +785,7 @@ func TestConcurrentFrequencyChange(t *testing.T) {
 			default:
 				for ch := 0; ch < 16; ch++ {
 					if _, _, _, err := pca.GetChannelState(ch); err != nil {
-						errors_ <- fmt.Errorf("state error on channel %d: %v", ch, err)
+						errorsList <- fmt.Errorf("state error on channel %d: %v", ch, err)
 						return
 					}
 				}
@@ -751,11 +797,11 @@ func TestConcurrentFrequencyChange(t *testing.T) {
 	// Ожидаем завершение контекста
 	<-ctx.Done()
 	wg.Wait()
-	close(errors_)
+	close(errorsList)
 
 	// Проверяем наличие ошибок
 	var errorList []error
-	for err := range errors_ {
+	for err := range errorsList {
 		errorList = append(errorList, err)
 	}
 
