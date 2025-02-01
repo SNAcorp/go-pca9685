@@ -3,6 +3,7 @@ package pca9685
 import (
 	"context"
 	"errors"
+	"fmt"
 	"image/color"
 	"math"
 	"strings"
@@ -472,5 +473,296 @@ func TestTestI2C_Close(t *testing.T) {
 	adapter := NewTestI2C()
 	if err := adapter.Close(); err != nil {
 		t.Errorf("TestI2C Close failed: %v", err)
+	}
+}
+
+func TestConcurrentSameChannelAccess(t *testing.T) {
+	adapter := NewTestI2C()
+	pca, err := New(adapter, DefaultConfig())
+	if err != nil {
+		t.Fatalf("Failed to create PCA9685: %v", err)
+	}
+
+	const (
+		numGoroutines = 10
+		numIterations = 100
+		channel       = 0
+	)
+
+	// Создаем мьютекс для синхронизации доступа к каналу PWM
+	var pwmMutex sync.Mutex
+
+	// Канал для сбора результатов
+	results := make(chan struct {
+		routineID int
+		values    []uint16
+	}, numGoroutines)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	var wg sync.WaitGroup
+
+	// Запускаем горутины
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(routineID int) {
+			defer wg.Done()
+
+			localValues := make([]uint16, 0, numIterations)
+
+			baseValue := uint16(routineID * numIterations)
+			for j := 0; j < numIterations; j++ {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+					value := baseValue + uint16(j)
+
+					// Защищаем доступ к PWM мьютексом
+					pwmMutex.Lock()
+					err := pca.SetPWM(ctx, channel, 0, value)
+					if err != nil {
+						t.Errorf("Goroutine %d failed to set PWM: %v", routineID, err)
+						pwmMutex.Unlock()
+						return
+					}
+
+					// Проверяем состояние
+					enabled, _, _, err := pca.GetChannelState(channel)
+					if err != nil {
+						t.Errorf("Goroutine %d failed to get channel state: %v", routineID, err)
+						pwmMutex.Unlock()
+						return
+					}
+					pwmMutex.Unlock()
+
+					if !enabled {
+						t.Errorf("Channel unexpectedly disabled in goroutine %d", routineID)
+						return
+					}
+
+					// Сохраняем значение
+					localValues = append(localValues, value)
+				}
+			}
+
+			// Отправляем результаты
+			results <- struct {
+				routineID int
+				values    []uint16
+			}{routineID, localValues}
+		}(i)
+	}
+
+	// Закрываем канал результатов после завершения всех горутин
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Собираем и проверяем результаты
+	for result := range results {
+		if len(result.values) != numIterations {
+			t.Errorf("Goroutine %d: expected %d values, got %d",
+				result.routineID, numIterations, len(result.values))
+			continue
+		}
+
+		baseValue := uint16(result.routineID * numIterations)
+		for idx, value := range result.values {
+			expectedValue := baseValue + uint16(idx)
+			if value != expectedValue {
+				t.Errorf("Goroutine %d: at index %d expected value %d, got %d",
+					result.routineID, idx, expectedValue, value)
+			}
+		}
+	}
+}
+
+// TestMultipleChannelsConcurrent проверяет конкурентный доступ к разным каналам
+func TestMultipleChannelsConcurrent(t *testing.T) {
+	adapter := NewTestI2C()
+	pca, err := New(adapter, DefaultConfig())
+	if err != nil {
+		t.Fatalf("Failed to create PCA9685: %v", err)
+	}
+
+	const (
+		numChannels             = 16
+		numIterationsPerChannel = 50
+	)
+
+	var wg sync.WaitGroup
+	errors_ := make(chan error, numChannels)
+	ctx := context.Background()
+
+	// Запускаем горутину для каждого канала
+	for ch := 0; ch < numChannels; ch++ {
+		wg.Add(1)
+		go func(channel int) {
+			defer wg.Done()
+
+			// Массив для хранения установленных значений
+			values := make([]uint16, 0, numIterationsPerChannel)
+
+			for i := 0; i < numIterationsPerChannel; i++ {
+				// Уникальное значение для этого канала и итерации
+				value := uint16((channel * 256) + i)
+
+				// Устанавливаем значение
+				if err := pca.SetPWM(ctx, channel, 0, value); err != nil {
+					errors_ <- fmt.Errorf("channel %d set error: %v", channel, err)
+					return
+				}
+
+				// Проверяем значение
+				_, _, off, err := pca.GetChannelState(channel)
+				if err != nil {
+					errors_ <- fmt.Errorf("channel %d get error: %v", channel, err)
+					return
+				}
+
+				if off != value {
+					errors_ <- fmt.Errorf("channel %d value mismatch: got %d, want %d",
+						channel, off, value)
+					return
+				}
+
+				values = append(values, off)
+				time.Sleep(time.Millisecond)
+			}
+
+			// Проверяем финальное состояние канала
+			enabled, _, finalValue, err := pca.GetChannelState(channel)
+			if err != nil {
+				errors_ <- fmt.Errorf("channel %d final state error: %v", channel, err)
+				return
+			}
+
+			if !enabled {
+				errors_ <- fmt.Errorf("channel %d unexpectedly disabled", channel)
+				return
+			}
+
+			expectedFinal := uint16((channel * 256) + numIterationsPerChannel - 1)
+			if finalValue != expectedFinal {
+				errors_ <- fmt.Errorf("channel %d final value mismatch: got %d, want %d",
+					channel, finalValue, expectedFinal)
+				return
+			}
+		}(ch)
+	}
+
+	// Ждем завершения всех горутин
+	wg.Wait()
+	close(errors_)
+
+	// Проверяем наличие ошибок
+	var errorList []error
+	for err := range errors_ {
+		errorList = append(errorList, err)
+	}
+
+	if len(errorList) > 0 {
+		t.Errorf("Found %d errors:", len(errorList))
+		for i, err := range errorList {
+			t.Errorf("Error %d: %v", i+1, err)
+		}
+	}
+}
+
+// TestConcurrentFrequencyChange проверяет устойчивость к изменениям частоты
+func TestConcurrentFrequencyChange(t *testing.T) {
+	adapter := NewTestI2C()
+	pca, err := New(adapter, DefaultConfig())
+	if err != nil {
+		t.Fatalf("Failed to create PCA9685: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	var wg sync.WaitGroup
+	errors_ := make(chan error, 3)
+
+	// Горутина изменения частоты
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		frequencies := []float64{200, 500, 1000, 1500}
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				for _, freq := range frequencies {
+					if err := pca.SetPWMFreq(freq); err != nil {
+						errors_ <- fmt.Errorf("frequency error: %v", err)
+						return
+					}
+					time.Sleep(100 * time.Millisecond)
+				}
+			}
+		}
+	}()
+
+	// Горутина записи PWM
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				for ch := 0; ch < 16; ch++ {
+					value := uint16(ch * 256)
+					if err := pca.SetPWM(ctx, ch, 0, value); err != nil {
+						errors_ <- fmt.Errorf("PWM error on channel %d: %v", ch, err)
+						return
+					}
+				}
+				time.Sleep(50 * time.Millisecond)
+			}
+		}
+	}()
+
+	// Горутина чтения состояния
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				for ch := 0; ch < 16; ch++ {
+					if _, _, _, err := pca.GetChannelState(ch); err != nil {
+						errors_ <- fmt.Errorf("state error on channel %d: %v", ch, err)
+						return
+					}
+				}
+				time.Sleep(50 * time.Millisecond)
+			}
+		}
+	}()
+
+	// Ожидаем завершение контекста
+	<-ctx.Done()
+	wg.Wait()
+	close(errors_)
+
+	// Проверяем наличие ошибок
+	var errorList []error
+	for err := range errors_ {
+		errorList = append(errorList, err)
+	}
+
+	if len(errorList) > 0 {
+		t.Errorf("Found %d errors during concurrent operations:", len(errorList))
+		for i, err := range errorList {
+			t.Errorf("Error %d: %v", i+1, err)
+		}
 	}
 }
