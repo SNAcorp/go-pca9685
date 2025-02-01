@@ -11,8 +11,8 @@ import (
 type Pump struct {
 	pca      *PCA9685
 	channel  int
-	minSpeed uint16
-	maxSpeed uint16
+	MinSpeed uint16
+	MaxSpeed uint16
 	mu       sync.RWMutex
 }
 
@@ -25,8 +25,8 @@ func NewPump(pca *PCA9685, channel int, opts ...PumpOption) (*Pump, error) {
 	pump := &Pump{
 		pca:      pca,
 		channel:  channel,
-		minSpeed: 0,
-		maxSpeed: 4095,
+		MinSpeed: 0,
+		MaxSpeed: 4095,
 	}
 
 	// Применение опций конфигурации
@@ -54,8 +54,8 @@ func WithSpeedLimits(min, max uint16) PumpOption {
 		if max > 4095 {
 			max = 4095
 		}
-		p.minSpeed = min
-		p.maxSpeed = max
+		p.MinSpeed = min
+		p.MaxSpeed = max
 	}
 }
 
@@ -75,7 +75,7 @@ func (p *Pump) SetSpeed(ctx context.Context, percent float64) error {
 		return uint16(value) + min
 	}
 
-	value := scale(percent, p.minSpeed, p.maxSpeed)
+	value := scale(percent, p.MinSpeed, p.MaxSpeed)
 	return p.pca.SetPWM(ctx, p.channel, 0, value)
 }
 
@@ -95,15 +95,15 @@ func (p *Pump) GetCurrentSpeed() (float64, error) {
 	}
 
 	// Более точное обратное преобразование
-	if off <= p.minSpeed {
+	if off <= p.MinSpeed {
 		return 0, nil
 	}
-	if off >= p.maxSpeed {
+	if off >= p.MaxSpeed {
 		return 100, nil
 	}
 
-	range_ := float64(p.maxSpeed - p.minSpeed)
-	percent := math.Round(float64(off-p.minSpeed) * 100.0 / range_)
+	range_ := float64(p.MaxSpeed - p.MinSpeed)
+	percent := math.Round(float64(off-p.MinSpeed) * 100.0 / range_)
 	return percent, nil
 }
 
@@ -118,7 +118,7 @@ func (p *Pump) SetSpeedLimits(min, max uint16) error {
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.minSpeed = min
-	p.maxSpeed = max
+	p.MinSpeed = min
+	p.MaxSpeed = max
 	return nil
 }

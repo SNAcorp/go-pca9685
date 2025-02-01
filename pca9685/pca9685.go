@@ -53,7 +53,7 @@ type Channel struct {
 type PCA9685 struct {
 	dev      I2CDevice
 	mu       sync.RWMutex
-	freq     float64
+	Freq     float64
 	channels [16]Channel
 	ctx      context.Context
 	cancel   context.CancelFunc
@@ -180,7 +180,7 @@ func (pca *PCA9685) SetPWMFreq(freq float64) error {
 		return fmt.Errorf("failed to enable auto-increment: %w", err)
 	}
 
-	pca.freq = freq
+	pca.Freq = freq
 	return nil
 }
 
