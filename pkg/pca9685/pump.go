@@ -7,7 +7,7 @@ import (
 	"sync"
 )
 
-// Pump представляет управление насосом
+// Pump представляет управление насосом.
 type Pump struct {
 	pca      *PCA9685
 	channel  int
@@ -16,7 +16,9 @@ type Pump struct {
 	mu       sync.RWMutex
 }
 
-// NewPump создает новый контроллер насоса
+// NewPump создает новый контроллер насоса.
+// При создании насоса проверяется корректность номера канала и опционально
+// применяются опции (например, установка ограничений скорости).
 func NewPump(pca *PCA9685, channel int, opts ...PumpOption) (*Pump, error) {
 	if channel < 0 || channel > 15 {
 		return nil, fmt.Errorf("invalid channel number: %d", channel)
@@ -29,12 +31,12 @@ func NewPump(pca *PCA9685, channel int, opts ...PumpOption) (*Pump, error) {
 		MaxSpeed: 4095,
 	}
 
-	// Применение опций конфигурации
+	// Применение опций конфигурации.
 	for _, opt := range opts {
 		opt(pump)
 	}
 
-	// Включение канала
+	// Включение канала.
 	if err := pca.EnableChannels(channel); err != nil {
 		return nil, fmt.Errorf("failed to enable channel: %w", err)
 	}
@@ -42,10 +44,10 @@ func NewPump(pca *PCA9685, channel int, opts ...PumpOption) (*Pump, error) {
 	return pump, nil
 }
 
-// PumpOption определяет опцию конфигурации насоса
+// PumpOption определяет опцию конфигурации насоса.
 type PumpOption func(*Pump)
 
-// WithSpeedLimits устанавливает минимальную и максимальную скорости насоса
+// WithSpeedLimits устанавливает минимальную и максимальную скорости насоса.
 func WithSpeedLimits(min, max uint16) PumpOption {
 	return func(p *Pump) {
 		if min > max {
@@ -59,7 +61,7 @@ func WithSpeedLimits(min, max uint16) PumpOption {
 	}
 }
 
-// SetSpeed устанавливает скорость насоса (0-100%)
+// SetSpeed устанавливает скорость насоса в процентах (0–100%).
 func (p *Pump) SetSpeed(ctx context.Context, percent float64) error {
 	if percent < 0 || percent > 100 {
 		return fmt.Errorf("speed percentage must be between 0 and 100")
@@ -68,7 +70,7 @@ func (p *Pump) SetSpeed(ctx context.Context, percent float64) error {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
-	// Более точное масштабирование
+	// Масштабирование: вычисляем значение PWM на основе процентов.
 	scale := func(percent float64, min, max uint16) uint16 {
 		range_ := float64(max - min)
 		value := math.Round((percent * range_) / 100.0)
@@ -79,12 +81,12 @@ func (p *Pump) SetSpeed(ctx context.Context, percent float64) error {
 	return p.pca.SetPWM(ctx, p.channel, 0, value)
 }
 
-// Stop останавливает насос
+// Stop останавливает насос, устанавливая скорость 0%.
 func (p *Pump) Stop(ctx context.Context) error {
 	return p.SetSpeed(ctx, 0)
 }
 
-// GetCurrentSpeed возвращает текущую скорость насоса в процентах
+// GetCurrentSpeed возвращает текущую скорость насоса в процентах.
 func (p *Pump) GetCurrentSpeed() (float64, error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -94,7 +96,7 @@ func (p *Pump) GetCurrentSpeed() (float64, error) {
 		return 0, fmt.Errorf("failed to get channel state: %w", err)
 	}
 
-	// Более точное обратное преобразование
+	// Обратное масштабирование.
 	if off <= p.MinSpeed {
 		return 0, nil
 	}
@@ -107,7 +109,7 @@ func (p *Pump) GetCurrentSpeed() (float64, error) {
 	return percent, nil
 }
 
-// SetSpeedLimits устанавливает новые ограничения скорости
+// SetSpeedLimits устанавливает новые ограничения скорости.
 func (p *Pump) SetSpeedLimits(min, max uint16) error {
 	if min > max {
 		return fmt.Errorf("minimum speed cannot be greater than maximum speed")

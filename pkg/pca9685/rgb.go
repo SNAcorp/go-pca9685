@@ -7,7 +7,7 @@ import (
 	"sync"
 )
 
-// RGBLed представляет RGB светодиод
+// RGBLed представляет RGB светодиод, управляемый через контроллер PCA9685.
 type RGBLed struct {
 	pca         *PCA9685
 	channels    [3]int
@@ -16,14 +16,14 @@ type RGBLed struct {
 	calibration RGBCalibration
 }
 
-// RGBCalibration содержит калибровочные данные для RGB светодиода
+// RGBCalibration содержит калибровочные данные для RGB светодиода.
 type RGBCalibration struct {
 	RedMin, RedMax     uint16
 	GreenMin, GreenMax uint16
 	BlueMin, BlueMax   uint16
 }
 
-// DefaultRGBCalibration возвращает калибровку по умолчанию
+// DefaultRGBCalibration возвращает калибровку по умолчанию.
 func DefaultRGBCalibration() RGBCalibration {
 	return RGBCalibration{
 		RedMax:   4095,
@@ -32,7 +32,7 @@ func DefaultRGBCalibration() RGBCalibration {
 	}
 }
 
-// NewRGBLed создает новый RGB светодиод
+// NewRGBLed создает новый RGB светодиод на указанных каналах (от 0 до 15).
 func NewRGBLed(pca *PCA9685, red, green, blue int) (*RGBLed, error) {
 	for _, ch := range []int{red, green, blue} {
 		if ch < 0 || ch > 15 {
@@ -47,7 +47,7 @@ func NewRGBLed(pca *PCA9685, red, green, blue int) (*RGBLed, error) {
 		calibration: DefaultRGBCalibration(),
 	}
 
-	// Включение каналов
+	// Включение каналов.
 	if err := pca.EnableChannels(red, green, blue); err != nil {
 		return nil, fmt.Errorf("failed to enable channels: %w", err)
 	}
@@ -55,26 +55,26 @@ func NewRGBLed(pca *PCA9685, red, green, blue int) (*RGBLed, error) {
 	return led, nil
 }
 
-// SetCalibration устанавливает калибровочные данные для светодиода
+// SetCalibration устанавливает калибровочные данные для светодиода.
 func (l *RGBLed) SetCalibration(cal RGBCalibration) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.calibration = cal
 }
 
-// GetCalibration возвращает текущие калибровочные данные
+// GetCalibration возвращает текущие калибровочные данные.
 func (l *RGBLed) GetCalibration() RGBCalibration {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	return l.calibration
 }
 
-// SetColor устанавливает цвет в значениях RGB (0-255)
+// SetColor устанавливает цвет светодиода (значения RGB от 0 до 255).
 func (l *RGBLed) SetColor(ctx context.Context, r, g, b uint8) error {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 
-	// Масштабирование значений с учетом калибровки и яркости
+	// Масштабирование с учетом калибровки и яркости.
 	scale := func(value uint8, min, max uint16) uint16 {
 		v := float64(value) * l.brightness
 		scaled := uint16((v * float64(max-min) / 255.0) + float64(min))
@@ -93,13 +93,14 @@ func (l *RGBLed) SetColor(ctx context.Context, r, g, b uint8) error {
 	return l.pca.SetMultiPWM(ctx, values)
 }
 
-// SetColorStdlib устанавливает цвет используя стандартный пакет color
+// SetColorStdlib устанавливает цвет с использованием стандартного пакета color.
 func (l *RGBLed) SetColorStdlib(ctx context.Context, c color.Color) error {
 	r, g, b, _ := c.RGBA()
+	// Приведение к 8-битному значению.
 	return l.SetColor(ctx, uint8(r>>8), uint8(g>>8), uint8(b>>8))
 }
 
-// SetBrightness устанавливает яркость (0.0-1.0)
+// SetBrightness устанавливает яркость (от 0.0 до 1.0).
 func (l *RGBLed) SetBrightness(brightness float64) error {
 	if brightness < 0 || brightness > 1 {
 		return fmt.Errorf("brightness must be between 0 and 1")
@@ -111,14 +112,14 @@ func (l *RGBLed) SetBrightness(brightness float64) error {
 	return nil
 }
 
-// GetBrightness возвращает текущую яркость
+// GetBrightness возвращает текущую яркость.
 func (l *RGBLed) GetBrightness() float64 {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	return l.brightness
 }
 
-// Off выключает все каналы светодиода
+// Off выключает все каналы светодиода.
 func (l *RGBLed) Off(ctx context.Context) error {
 	return l.SetColor(ctx, 0, 0, 0)
 }
