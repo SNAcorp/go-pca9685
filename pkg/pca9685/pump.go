@@ -20,7 +20,9 @@ type Pump struct {
 // При создании насоса проверяется корректность номера канала и опционально
 // применяются опции (например, установка ограничений скорости).
 func NewPump(pca *PCA9685, channel int, opts ...PumpOption) (*Pump, error) {
+	pca.logger.Detailed("Создание нового насоса на канале: %d", channel)
 	if channel < 0 || channel > 15 {
+		pca.logger.Error("NewPump: неверный номер канала: %d", channel)
 		return nil, fmt.Errorf("invalid channel number: %d", channel)
 	}
 
@@ -38,9 +40,11 @@ func NewPump(pca *PCA9685, channel int, opts ...PumpOption) (*Pump, error) {
 
 	// Включение канала.
 	if err := pca.EnableChannels(channel); err != nil {
+		pca.logger.Error("NewPump: не удалось включить канал %d: %v", channel, err)
 		return nil, fmt.Errorf("failed to enable channel: %w", err)
 	}
 
+	pca.logger.Basic("Насос успешно создан на канале: %d", channel)
 	return pump, nil
 }
 
@@ -58,13 +62,17 @@ func WithSpeedLimits(min, max uint16) PumpOption {
 		}
 		p.MinSpeed = min
 		p.MaxSpeed = max
+		p.pca.logger.Detailed("WithSpeedLimits: установлены ограничения скорости: min=%d, max=%d", min, max)
 	}
 }
 
 // SetSpeed устанавливает скорость насоса в процентах (0–100%).
 func (p *Pump) SetSpeed(ctx context.Context, percent float64) error {
+	p.pca.logger.Detailed("SetSpeed: установка скорости насоса на %f%%", percent)
 	if percent < 0 || percent > 100 {
-		return fmt.Errorf("speed percentage must be between 0 and 100")
+		err := fmt.Errorf("speed percentage must be between 0 and 100")
+		p.pca.logger.Error("SetSpeed: неверное значение скорости: %f%%", percent)
+		return err
 	}
 
 	p.mu.RLock()
@@ -78,49 +86,69 @@ func (p *Pump) SetSpeed(ctx context.Context, percent float64) error {
 	}
 
 	value := scale(percent, p.MinSpeed, p.MaxSpeed)
-	return p.pca.SetPWM(ctx, p.channel, 0, value)
+	p.pca.logger.Detailed("SetSpeed: вычисленное значение PWM: %d", value)
+	if err := p.pca.SetPWM(ctx, p.channel, 0, value); err != nil {
+		p.pca.logger.Error("SetSpeed: ошибка установки PWM: %v", err)
+		return err
+	}
+	p.pca.logger.Basic("SetSpeed: скорость насоса установлена на %f%%", percent)
+	return nil
 }
 
 // Stop останавливает насос, устанавливая скорость 0%.
 func (p *Pump) Stop(ctx context.Context) error {
-	return p.SetSpeed(ctx, 0)
+	p.pca.logger.Basic("Stop: остановка насоса на канале %d", p.channel)
+	if err := p.SetSpeed(ctx, 0); err != nil {
+		p.pca.logger.Error("Stop: ошибка остановки насоса: %v", err)
+		return err
+	}
+	return nil
 }
 
 // GetCurrentSpeed возвращает текущую скорость насоса в процентах.
 func (p *Pump) GetCurrentSpeed() (float64, error) {
+	p.pca.logger.Detailed("GetCurrentSpeed: получение текущей скорости насоса на канале %d", p.channel)
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
 	_, _, off, err := p.pca.GetChannelState(p.channel)
 	if err != nil {
+		p.pca.logger.Error("GetCurrentSpeed: ошибка получения состояния канала %d: %v", p.channel, err)
 		return 0, fmt.Errorf("failed to get channel state: %w", err)
 	}
 
 	// Обратное масштабирование.
+	var percent float64
 	if off <= p.MinSpeed {
-		return 0, nil
+		percent = 0
+	} else if off >= p.MaxSpeed {
+		percent = 100
+	} else {
+		range_ := float64(p.MaxSpeed - p.MinSpeed)
+		percent = math.Round(float64(off-p.MinSpeed) * 100.0 / range_)
 	}
-	if off >= p.MaxSpeed {
-		return 100, nil
-	}
-
-	range_ := float64(p.MaxSpeed - p.MinSpeed)
-	percent := math.Round(float64(off-p.MinSpeed) * 100.0 / range_)
+	p.pca.logger.Detailed("GetCurrentSpeed: получена скорость %f%% для канала %d", percent, p.channel)
 	return percent, nil
 }
 
 // SetSpeedLimits устанавливает новые ограничения скорости.
 func (p *Pump) SetSpeedLimits(min, max uint16) error {
+	p.pca.logger.Detailed("SetSpeedLimits: установка новых ограничений скорости: min=%d, max=%d", min, max)
 	if min > max {
-		return fmt.Errorf("minimum speed cannot be greater than maximum speed")
+		err := fmt.Errorf("minimum speed cannot be greater than maximum speed")
+		p.pca.logger.Error("SetSpeedLimits: ошибка установки ограничений: min (%d) больше max (%d)", min, max)
+		return err
 	}
 	if max > 4095 {
-		return fmt.Errorf("maximum speed cannot exceed 4095")
+		err := fmt.Errorf("maximum speed cannot exceed 4095")
+		p.pca.logger.Error("SetSpeedLimits: ошибка установки ограничений: max (%d) превышает 4095", max)
+		return err
 	}
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.MinSpeed = min
 	p.MaxSpeed = max
+	p.pca.logger.Basic("SetSpeedLimits: ограничения скорости успешно установлены: min=%d, max=%d", min, max)
 	return nil
 }
