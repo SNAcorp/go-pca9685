@@ -6,7 +6,7 @@ package pca9685
 // Адаптер для periph.io
 ///////////////////////////////////////////////////////////////////////////////
 
-import periph_i2c "periph.io/x/periph/conn/i2c"
+import periph_i2c "periph.io/x/conn/v3/i2c"
 
 type I2CAdapterPeriph struct {
 	dev *periph_i2c.Dev
