@@ -2,8 +2,10 @@ package pca9685
 
 import (
 	"context"
+	"errors"
 	"image/color"
 	"math"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -293,4 +295,182 @@ func TestConcurrency(t *testing.T) {
 	}
 
 	wg.Wait()
+}
+
+func TestPCA9685_FadeChannel(t *testing.T) {
+	adapter := NewTestI2C()
+	t.Log("Using TestI2C adapter for testing FadeChannel")
+	pca, err := New(adapter, DefaultConfig())
+	if err != nil {
+		t.Fatalf("Failed to create PCA9685: %v", err)
+	}
+	ctx := context.Background()
+	channel := 0
+	start := uint16(0)
+	end := uint16(3000)
+	duration := 100 * time.Millisecond
+
+	// Set the initial PWM value
+	if err := pca.SetPWM(ctx, channel, 0, start); err != nil {
+		t.Fatalf("SetPWM failed: %v", err)
+	}
+
+	// Invoke FadeChannel to gradually change PWM from start to end
+	if err := pca.FadeChannel(ctx, channel, start, end, duration); err != nil {
+		t.Fatalf("FadeChannel failed: %v", err)
+	}
+
+	// Check that the PWM value at the channel is now equal to 'end'
+	_, _, off, err := pca.GetChannelState(channel)
+	if err != nil {
+		t.Fatalf("GetChannelState failed: %v", err)
+	}
+	if off != end {
+		t.Errorf("FadeChannel: expected off=%d, got %d", end, off)
+	}
+}
+
+func TestPCA9685_FadeChannel_Cancel(t *testing.T) {
+	adapter := NewTestI2C()
+	t.Log("Using TestI2C adapter for testing FadeChannel with cancelled context")
+	pca, err := New(adapter, DefaultConfig())
+	if err != nil {
+		t.Fatalf("Failed to create PCA9685: %v", err)
+	}
+	// Create a context that will be cancelled shortly
+	ctx, cancel := context.WithCancel(context.Background())
+	// Cancel the context after a short delay
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		cancel()
+	}()
+
+	err = pca.FadeChannel(ctx, 0, 0, 3000, 100*time.Millisecond)
+	if err == nil {
+		t.Error("Expected FadeChannel to return an error due to cancelled context")
+	} else {
+		t.Logf("FadeChannel correctly returned error on cancelled context: %v", err)
+	}
+}
+
+func TestPCA9685_DumpState(t *testing.T) {
+	adapter := NewTestI2C()
+	t.Log("Using TestI2C adapter for testing DumpState")
+	pca, err := New(adapter, DefaultConfig())
+	if err != nil {
+		t.Fatalf("Failed to create PCA9685: %v", err)
+	}
+	ctx := context.Background()
+
+	// Set distinct PWM values on several channels
+	for i := 0; i < 8; i++ {
+		if err := pca.SetPWM(ctx, i, 0, uint16(i*250)); err != nil {
+			t.Errorf("SetPWM failed for channel %d: %v", i, err)
+		}
+	}
+
+	state := pca.DumpState()
+	if state == "" {
+		t.Error("DumpState returned an empty string")
+	}
+	if !strings.Contains(state, "Состояние PCA9685:") {
+		t.Error("DumpState output missing header 'Состояние PCA9685:'")
+	}
+	t.Logf("DumpState output:\n%s", state)
+}
+
+// DummyI2CDevice simulates an I2C device for testing I2CAdapterD2r2 and I2CAdapterD2r2Extended.
+type DummyI2CDevice struct {
+	mu          sync.Mutex
+	writtenData []byte
+	readData    []byte
+	writeFail   int // number of times to fail WriteBytes
+	readFail    int // number of times to fail ReadBytes
+}
+
+func (d *DummyI2CDevice) WriteBytes(data []byte) (int, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.writeFail > 0 {
+		d.writeFail--
+		return 0, errors.New("simulated write error")
+	}
+	d.writtenData = append(d.writtenData, data...)
+	return len(data), nil
+}
+
+func (d *DummyI2CDevice) ReadBytes(data []byte) (int, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.readFail > 0 {
+		d.readFail--
+		return 0, errors.New("simulated read error")
+	}
+	n := copy(data, d.readData)
+	return n, nil
+}
+
+func (d *DummyI2CDevice) Close() error {
+	return nil
+}
+
+// DummyPeriphI2CDev simulates a periph.io I2C device.
+type DummyPeriphI2CDev struct {
+	mu          sync.Mutex
+	lastWritten []byte
+	txData      []byte
+	txFail      int // number of times to fail Tx
+}
+
+func (d *DummyPeriphI2CDev) Tx(w, r []byte) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.txFail > 0 {
+		d.txFail--
+		return errors.New("simulated Tx error")
+	}
+	if r == nil {
+		d.lastWritten = append([]byte{}, w...)
+		return nil
+	}
+	_ = copy(r, d.txData)
+	return nil
+}
+
+// ===== Tests for TestI2C Adapter =====
+
+func TestTestI2C_WriteRead(t *testing.T) {
+	adapter := NewTestI2C()
+	reg := uint8(0x05)
+	writeData := []byte{1, 2, 3}
+	if err := adapter.WriteReg(reg, writeData); err != nil {
+		t.Fatalf("TestI2C WriteReg failed: %v", err)
+	}
+	readBuf := make([]byte, len(writeData))
+	if err := adapter.ReadReg(reg, readBuf); err != nil {
+		t.Fatalf("TestI2C ReadReg failed: %v", err)
+	}
+	if string(readBuf) != string(writeData) {
+		t.Errorf("TestI2C ReadReg: expected %v, got %v", writeData, readBuf)
+	}
+}
+
+func TestTestI2C_ReadNotFound(t *testing.T) {
+	adapter := NewTestI2C()
+	reg := uint8(0x10)
+	readBuf := make([]byte, 5)
+	if err := adapter.ReadReg(reg, readBuf); err != nil {
+		t.Fatalf("TestI2C ReadReg failed: %v", err)
+	}
+	expected := []byte{0, 0, 0, 0, 0}
+	if string(readBuf) != string(expected) {
+		t.Errorf("TestI2C ReadReg: expected %v, got %v", expected, readBuf)
+	}
+}
+
+func TestTestI2C_Close(t *testing.T) {
+	adapter := NewTestI2C()
+	if err := adapter.Close(); err != nil {
+		t.Errorf("TestI2C Close failed: %v", err)
+	}
 }
