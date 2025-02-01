@@ -34,8 +34,8 @@ const (
 	OscClock      = 25000000 // 25MHz
 )
 
-// I2CDevice определяет интерфейс для работы с I2C устройством
-type I2CDevice interface {
+// I2C определяет интерфейс для работы с I2C устройством
+type I2C interface {
 	WriteReg(reg uint8, data []byte) error
 	ReadReg(reg uint8, data []byte) error
 	Close() error
@@ -51,7 +51,7 @@ type Channel struct {
 
 // PCA9685 представляет контроллер PWM
 type PCA9685 struct {
-	dev      I2CDevice
+	dev      I2C
 	mu       sync.RWMutex
 	Freq     float64
 	channels [16]Channel
@@ -78,7 +78,7 @@ func DefaultConfig() *Config {
 }
 
 // New создает новый экземпляр PCA9685 с указанной конфигурацией
-func New(dev I2CDevice, config *Config) (*PCA9685, error) {
+func New(dev I2C, config *Config) (*PCA9685, error) {
 	if config == nil {
 		config = DefaultConfig()
 	}

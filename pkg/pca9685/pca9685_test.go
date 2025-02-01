@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// MockI2CDevice реализует I2CDevice для тестирования
+// MockI2CDevice реализует I2C для тестирования
 type MockI2CDevice struct {
 	mu        sync.RWMutex
 	registers map[uint8][]byte
