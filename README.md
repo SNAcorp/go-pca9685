@@ -1,5 +1,9 @@
 # PCA9685 Go Driver
 
+[![Go Version](https://img.shields.io/badge/Go-1.22%2B-blue)](https://golang.org)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE)
+[![Open Source](https://badges.frapsoft.com/os/v2/open-source.svg)](https://opensource.org)
+
 Драйвер для управления 16-канальным PWM-контроллером PCA9685 на языке Go. Поддерживает работу с RGB светодиодами, насосами и другими PWM-устройствами.
 
 ## Особенности
